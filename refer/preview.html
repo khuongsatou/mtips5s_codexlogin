@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Infinity AI Store — Project Preview</title>
+  <style>
+    :root{--bg:#0b1020;--card:#131b30;--line:#263454;--text:#edf3ff;--muted:#9eafd0;--blue:#79a7ff;--green:#4de1a3;--amber:#ffd166;--red:#ff7f91}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#1b3263 0,transparent 35%),var(--bg);color:var(--text);font:15px/1.6 Inter,system-ui,sans-serif}
+    .wrap{max-width:1180px;margin:auto;padding:34px 20px 70px}.hero{padding:30px;border:1px solid var(--line);border-radius:24px;background:linear-gradient(135deg,#182852,#10182b);box-shadow:0 24px 70px #0006}.eyebrow{color:var(--green);font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:12px}.hero h1{font-size:clamp(30px,5vw,56px);line-height:1.05;margin:12px 0}.hero p{max-width:780px;color:var(--muted);font-size:17px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chip{padding:7px 11px;border:1px solid var(--line);border-radius:999px;color:var(--blue);background:#ffffff08}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0}.card{background:#ffffff08;border:1px solid var(--line);border-radius:16px;padding:18px}.card h3{margin:0 0 8px}.metric{font-size:28px;font-weight:800;color:var(--green)}.section{margin-top:30px}.section h2{font-size:24px;margin-bottom:12px}.flow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.node{padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);min-width:135px}.arrow{color:var(--amber);font-size:22px}table{border-collapse:collapse;width:100%;background:#ffffff06;border:1px solid var(--line);border-radius:14px;overflow:hidden}th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--blue);background:#ffffff08}td{color:#dce5f8}a{color:var(--blue)}.risk{color:var(--red)}.good{color:var(--green)}.note{padding:14px 16px;border-left:3px solid var(--amber);background:#ffd16612;color:#dbe5fa}.footer{color:var(--muted);margin-top:30px;font-size:13px}@media(max-width:800px){.grid{grid-template-columns:1fr}.flow{display:block}.node{margin:8px 0}.arrow{display:block;text-align:center}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <section class="hero">
+    <div class="eyebrow">Project architecture preview</div>
+    <h1>Infinity AI Store<br>9router Import Tool</h1>
+    <p>Công cụ local để nhập, quản lý và xác minh connection Codex OAuth trong 9router, gồm import token, OAuth manual, auto-login song song và quản lý storage SQLite/JSON.</p>
+    <div class="chips"><span class="chip">Python</span><span class="chip">Playwright</span><span class="chip">OAuth PKCE</span><span class="chip">SQLite + JSON</span><span class="chip">Local HTTP API</span></div>
+  </section>
+
+  <section class="grid">
+    <div class="card"><div class="metric">3</div><h3>Lớp runtime</h3><div>UI · API/storage · browser worker</div></div>
+    <div class="card"><div class="metric">9</div><h3>Endpoint/API route</h3><div>Health, import, accounts, OAuth, stop</div></div>
+    <div class="card"><div class="metric">4</div><h3>Khu vực UI</h3><div>Import · Accounts · File · OAuth</div></div>
+  </section>
+
+  <section class="section"><h2>Flow chính</h2><div class="flow"><div class="node">1. Nhập dữ liệu</div><div class="arrow">→</div><div class="node">2. Parse & chuẩn hóa</div><div class="arrow">→</div><div class="node">3. OAuth/token</div><div class="arrow">→</div><div class="node">4. Backup & upsert</div><div class="arrow">→</div><div class="node">5. Verify SQLite</div><div class="arrow">→</div><div class="node">6. Hiển thị kết quả</div></div></section>
+
+  <section class="section"><h2>Pipeline OAuth auto-login</h2><div class="card"><code>index.html</code> → <code>POST /api/oauth/auto-login</code> → <code>server.py</code> tạo file tạm → spawn <code>auto_login.py</code> → Chrome/context riêng từng account → callback <code>:1455</code> theo <code>state</code> → token exchange → <code>/api/import</code> → log event → UI polling 500ms.</div></section>
+
+  <section class="section"><h2>Bảng chức năng</h2><table><thead><tr><th>Chức năng</th><th>Đầu vào</th><th>Đầu ra</th><th>Điểm đáng chú ý</th></tr></thead><tbody>
+    <tr><td>Import trực tiếp</td><td>JSON session/token</td><td>Inserted/replaced/verify</td><td class="good">Preview và chống trùng email</td></tr>
+    <tr><td>Import nhiều file</td><td>Nhiều file JSON</td><td>Bảng preview theo nguồn</td><td class="good">Gộp và dedup trước khi gửi</td></tr>
+    <tr><td>OAuth manual</td><td>Click login</td><td>Connection Codex</td><td>PKCE + state + callback local</td></tr>
+    <tr><td>OAuth auto</td><td>Email/password/TOTP</td><td>Kết quả từng account</td><td class="good">Song song, retry, realtime status</td></tr>
+    <tr><td>Quản lý account</td><td>DB local</td><td>List/delete/export</td><td class="good">Backup trước thao tác ghi/xóa</td></tr>
+  </tbody></table></section>
+
+  <section class="section"><h2>Điểm mạnh và cảnh báo</h2><div class="grid"><div class="card"><h3 class="good">Điểm mạnh</h3><ul><li>PKCE S256 và state riêng mỗi flow.</li><li>Browser context riêng, retry có chủ đích.</li><li>Storage lock, backup, verify sau commit.</li><li>Log máy đọc được và UI polling.</li></ul></div><div class="card"><h3 class="risk">Rủi ro ưu tiên</h3><ul><li>Credential/token plaintext trong file/DB/backup.</li><li>CORS wildcard trên API local.</li><li>HTML callback cần escape dữ liệu.</li><li>UI gửi headless nhưng server ép headed.</li></ul></div><div class="card"><h3>Đọc tài liệu</h3><p><a href="00-tong-quan-du-an.md">00 — Tổng quan</a><br><a href="01-flow-pipeline-va-prompt.md">01 — Flow & prompt</a><br><a href="02-chuc-nang-api-va-du-lieu.md">02 — Chức năng & API</a><br><a href="03-bao-mat-van-hanh-va-khuyen-nghi.md">03 — Bảo mật & roadmap</a></p></div></div></section>
+
+  <div class="note">Tài liệu không hiển thị token, password, TOTP secret hoặc email đầy đủ. Dữ liệu nhạy cảm hiện có trong workspace nên được bảo vệ/thu hồi theo quy trình vận hành.</div>
+  <div class="footer">Generated from the current workspace source files · ngày phân tích: 05/09/2026 · Đây là preview tĩnh, không tự gọi API và không đọc dữ liệu runtime.</div>
+</main>
+</body></html>
