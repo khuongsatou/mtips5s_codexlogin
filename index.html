@@ -637,6 +637,14 @@
           <div class="actions">
             <button class="btn btn-ghost" id="btn-refresh">🔄 Refresh</button>
             <button class="btn btn-primary" id="btn-export-cockpit">⬇ Export Cockpit</button>
+            <button class="btn btn-primary" id="btn-export-selected" disabled>⬇ Export đã chọn (0)</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.82rem;margin:8px 0 10px">
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="acc-select-all" aria-label="Chọn tất cả tài khoản" />
+              Chọn tất cả
+            </label>
+            <span id="acc-selected-count">Đã chọn 0</span>
           </div>
           <div id="acc-count" style="color:var(--muted);font-size:.85rem;margin-bottom:10px"></div>
           <div class="msg" id="cockpit-export-msg"></div>
@@ -644,6 +652,7 @@
             <table>
               <thead>
                 <tr>
+                  <th><input type="checkbox" id="acc-select-all-header" aria-label="Chọn tất cả tài khoản" /></th>
                   <th>#</th>
                   <th>Email</th>
                   <th>Plan</th>
@@ -654,7 +663,7 @@
               </thead>
               <tbody id="acc-body">
                 <tr>
-                  <td colspan="6" class="empty-cell">Đang tải...</td>
+                  <td colspan="7" class="empty-cell">Đang tải...</td>
                 </tr>
               </tbody>
             </table>
@@ -963,23 +972,51 @@
       });
 
       // === Tab 2: Accounts ===
+      let accountConnections = [];
+      const selectedAccountIds = new Set();
+
+      function updateAccountSelectionUI() {
+        const selected = accountConnections.filter(c => selectedAccountIds.has(String(c.id)) && c.isActive !== 0);
+        const count = selected.length;
+        $('acc-selected-count').textContent = `Đã chọn ${count}`;
+        $('btn-export-selected').textContent = `⬇ Export đã chọn (${count})`;
+        $('btn-export-selected').disabled = count === 0;
+        const allSelected = accountConnections.length > 0 && accountConnections.filter(c => c.isActive !== 0).every(c => selectedAccountIds.has(String(c.id)));
+        $('acc-select-all').checked = allSelected;
+        $('acc-select-all-header').checked = allSelected;
+      }
+
+      function setAllAccountsSelected(checked) {
+        accountConnections.forEach(c => {
+          if (c.isActive !== 0 && checked) selectedAccountIds.add(String(c.id));
+          else selectedAccountIds.delete(String(c.id));
+        });
+        $('acc-body').querySelectorAll('.acc-select').forEach(input => { input.checked = checked; });
+        updateAccountSelectionUI();
+      }
+
       async function loadAccounts() {
-        if (!serverOnline) { $('acc-body').innerHTML = '<tr><td colspan="6" class="empty-cell">Server offline</td></tr>'; $('acc-count').textContent = ''; return }
+        if (!serverOnline) { $('acc-body').innerHTML = '<tr><td colspan="7" class="empty-cell">Server offline</td></tr>'; $('acc-count').textContent = ''; accountConnections = []; updateAccountSelectionUI(); return }
         try {
           const r = await fetch(API + '/api/connections');
           const d = await r.json();
           const conns = d.connections || [];
+          accountConnections = conns;
+          const validIds = new Set(conns.filter(c => c.isActive !== 0).map(c => String(c.id)));
+          [...selectedAccountIds].forEach(id => { if (!validIds.has(id)) selectedAccountIds.delete(id); });
           $('acc-count').textContent = conns.length + ' tài khoản';
-          if (!conns.length) { $('acc-body').innerHTML = '<tr><td colspan="6" class="empty-cell">Chưa có tài khoản nào.</td></tr>'; return }
+          if (!conns.length) { $('acc-body').innerHTML = '<tr><td colspan="7" class="empty-cell">Chưa có tài khoản nào.</td></tr>'; updateAccountSelectionUI(); return }
           $('acc-body').innerHTML = conns.map((c, i) => {
             const data = c.data || {};
             const plan = data.providerSpecificData?.chatgptPlanType || '';
             const exp = data.expiresAt || '';
             const status = data.testStatus || 'unknown';
             const stCls = status === 'active' ? 'green' : status === 'error' ? 'red' : '';
-            return `<tr><td>${c.priority || i + 1}</td><td><div class="cell-clip" title="${esc(c.email)}">${esc(c.email || c.name || '-')}</div></td><td>${plan ? `<span class="tag tag-plus">${esc(plan)}</span>` : '-'}</td><td>${fmtDate(exp)}</td><td><span style="color:var(--${stCls || 'muted'})">${esc(status)}</span></td><td><button class="del-btn" onclick="delConn('${esc(c.id)}')">✕</button></td></tr>`
+            const id = String(c.id);
+            return `<tr><td><input type="checkbox" class="acc-select" data-id="${esc(id)}" aria-label="Chọn ${esc(c.email || c.name || 'tài khoản')}" ${selectedAccountIds.has(id) ? 'checked' : ''} ${c.isActive === 0 ? 'disabled' : ''}></td><td>${c.priority || i + 1}</td><td><div class="cell-clip" title="${esc(c.email)}">${esc(c.email || c.name || '-')}</div></td><td>${plan ? `<span class="tag tag-plus">${esc(plan)}</span>` : '-'}</td><td>${fmtDate(exp)}</td><td><span style="color:var(--${stCls || 'muted'})">${esc(status)}</span></td><td><button class="del-btn" onclick="delConn('${esc(c.id)}')">✕</button></td></tr>`
           }).join('');
-        } catch { $('acc-body').innerHTML = '<tr><td colspan="6" class="empty-cell">Lỗi kết nối</td></tr>' }
+          updateAccountSelectionUI();
+        } catch { $('acc-body').innerHTML = '<tr><td colspan="7" class="empty-cell">Lỗi kết nối</td></tr>'; accountConnections = []; updateAccountSelectionUI(); }
       }
 
       window.delConn = async function (id) {
@@ -988,6 +1025,52 @@
       };
 
       $('btn-refresh').addEventListener('click', loadAccounts);
+
+      $('acc-select-all').addEventListener('change', e => setAllAccountsSelected(e.target.checked));
+      $('acc-select-all-header').addEventListener('change', e => setAllAccountsSelected(e.target.checked));
+      $('acc-body').addEventListener('change', e => {
+        if (!e.target.classList.contains('acc-select')) return;
+        const id = String(e.target.dataset.id);
+        if (e.target.checked) selectedAccountIds.add(id);
+        else selectedAccountIds.delete(id);
+        updateAccountSelectionUI();
+      });
+
+      function cockpitRecord(c) {
+        const data = c.data || {};
+        const providerData = data.providerSpecificData || {};
+        return {
+          id_token: data.idToken || '',
+          access_token: data.accessToken || '',
+          refresh_token: data.refreshToken || '',
+          account_id: providerData.chatgptAccountId || '',
+          last_refresh: data.lastUsedAt || c.updatedAt || '',
+          email: c.email || '',
+          type: c.provider || 'codex',
+          expired: data.expiresAt || ''
+        };
+      }
+
+      function downloadCockpitRecords(conns, filename) {
+        const seen = new Set();
+        const exported = conns.filter(c => {
+          const email = String(c.email || '').trim().toLowerCase();
+          if (!email || seen.has(email) || c.isActive === 0) return false;
+          seen.add(email);
+          return true;
+        }).map(cockpitRecord);
+        if (!exported.length) throw new Error('Không có tài khoản active để export');
+        const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        return exported.length;
+      }
 
       // Export the current active Codex accounts in Cockpit's flat JSON format.
       $('btn-export-cockpit').addEventListener('click', async () => {
@@ -1003,43 +1086,28 @@
           const d = await r.json();
           if (!r.ok || d.error) throw new Error(d.error || 'Không lấy được danh sách tài khoản');
 
-          const seen = new Set();
-          const exported = (d.connections || []).filter(c => {
-            const email = String(c.email || '').trim().toLowerCase();
-            if (!email || seen.has(email) || c.isActive === 0) return false;
-            seen.add(email);
-            return true;
-          }).map(c => {
-            const data = c.data || {};
-            const providerData = data.providerSpecificData || {};
-            return {
-              id_token: data.idToken || '',
-              access_token: data.accessToken || '',
-              refresh_token: data.refreshToken || '',
-              account_id: providerData.chatgptAccountId || '',
-              last_refresh: data.lastUsedAt || c.updatedAt || '',
-              email: c.email || '',
-              type: c.provider || 'codex',
-              expired: data.expiresAt || ''
-            };
-          });
-
-          if (!exported.length) throw new Error('Không có tài khoản active để export');
-          const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'cockpit-bulk-import.json';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          showMsg('cockpit-export-msg', `✅ Đã export ${exported.length} tài khoản theo format Cockpit.`, 'ok');
+          const exportedCount = downloadCockpitRecords(d.connections || [], 'cockpit-bulk-import.json');
+          showMsg('cockpit-export-msg', `✅ Đã export ${exportedCount} tài khoản theo format Cockpit.`, 'ok');
         } catch (e) {
           showMsg('cockpit-export-msg', 'Export lỗi: ' + e.message, 'err');
         }
         btn.disabled = false;
         btn.textContent = '⬇ Export Cockpit';
+      });
+
+      $('btn-export-selected').addEventListener('click', async () => {
+        const btn = $('btn-export-selected');
+        const selected = accountConnections.filter(c => selectedAccountIds.has(String(c.id)));
+        if (!selected.length) return;
+        btn.disabled = true;
+        btn.textContent = 'Đang export...';
+        try {
+          const exportedCount = downloadCockpitRecords(selected, 'cockpit-selected-accounts.json');
+          showMsg('cockpit-export-msg', `✅ Đã export ${exportedCount} tài khoản đã chọn theo format Cockpit.`, 'ok');
+        } catch (e) {
+          showMsg('cockpit-export-msg', 'Export lỗi: ' + e.message, 'err');
+        }
+        updateAccountSelectionUI();
       });
 
       // === Tab 3: Multi-file import ===
