@@ -314,6 +314,70 @@
       margin-bottom: 10px
     }
 
+    .account-filters {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(130px, auto));
+      gap: 8px;
+      margin-bottom: 10px
+    }
+
+    .account-filters input,
+    .account-filters select {
+      min-height: 36px;
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .82rem
+    }
+
+    .account-filters input:focus,
+    .account-filters select:focus {
+      outline: none;
+      border-color: var(--accent)
+    }
+
+    .sort-btn {
+      padding: 0;
+      background: none;
+      color: inherit;
+      font-weight: inherit;
+      font-size: inherit
+    }
+
+    .sort-btn:hover {
+      color: var(--text)
+    }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: .82rem
+    }
+
+    .pagination-nav {
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .pagination .btn {
+      min-height: 32px;
+      padding: 5px 10px;
+      font-size: .8rem
+    }
+
+    @media (max-width: 700px) {
+      .account-filters { grid-template-columns: 1fr 1fr }
+      .account-filters input { grid-column: 1 / -1 }
+      .pagination { align-items: stretch; flex-direction: column }
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -645,6 +709,24 @@
               Chọn tất cả
             </label>
             <span id="acc-selected-count">Đã chọn 0</span>
+            <span>· Giữ Shift để chọn liên tục</span>
+          </div>
+          <div class="account-filters">
+            <input id="acc-search" type="search" placeholder="Tìm email, tên, ID..." aria-label="Tìm kiếm tài khoản" />
+            <select id="acc-status-filter" aria-label="Lọc theo trạng thái">
+              <option value="all">Tất cả trạng thái</option>
+              <option value="active">Active</option>
+              <option value="error">Error</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <select id="acc-plan-filter" aria-label="Lọc theo plan">
+              <option value="all">Tất cả plan</option>
+            </select>
+            <select id="acc-page-size" aria-label="Số tài khoản mỗi trang">
+              <option value="25">25 / trang</option>
+              <option value="50">50 / trang</option>
+              <option value="100">100 / trang</option>
+            </select>
           </div>
           <div id="acc-count" style="color:var(--muted);font-size:.85rem;margin-bottom:10px"></div>
           <div class="msg" id="cockpit-export-msg"></div>
@@ -653,11 +735,11 @@
               <thead>
                 <tr>
                   <th><input type="checkbox" id="acc-select-all-header" aria-label="Chọn tất cả tài khoản" /></th>
-                  <th>#</th>
-                  <th>Email</th>
-                  <th>Plan</th>
-                  <th>Hết hạn</th>
-                  <th>Trạng thái</th>
+                  <th><button class="sort-btn" data-sort="priority" type="button">#</button></th>
+                  <th><button class="sort-btn" data-sort="email" type="button">Email</button></th>
+                  <th><button class="sort-btn" data-sort="plan" type="button">Plan</button></th>
+                  <th><button class="sort-btn" data-sort="expires" type="button">Hết hạn</button></th>
+                  <th><button class="sort-btn" data-sort="status" type="button">Trạng thái</button></th>
                   <th></th>
                 </tr>
               </thead>
@@ -667,6 +749,13 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="pagination">
+            <span id="acc-page-info">Trang 1/1</span>
+            <div class="pagination-nav">
+              <button class="btn btn-ghost" id="acc-prev-page" type="button">← Trước</button>
+              <button class="btn btn-ghost" id="acc-next-page" type="button">Sau →</button>
+            </div>
           </div>
         </div>
       </div>
@@ -807,6 +896,10 @@
                 🚀 Auto Login tất cả
               </button>
               <button class="btn btn-ghost" id="btn-auto-stop" style="display:none">⏹ Dừng</button>
+            </div>
+            <div id="oauth-export-actions" style="display:none;gap:8px;margin-bottom:10px">
+              <button class="btn btn-ghost" id="btn-export-unrun" type="button" disabled>⬇ Xuất chưa chạy (0)</button>
+              <button class="btn btn-ghost" id="btn-export-errors" type="button" disabled>⬇ Xuất lỗi (0)</button>
             </div>
 
             <div style="font-size:.75rem;color:var(--muted);margin-bottom:10px">
@@ -974,6 +1067,87 @@
       // === Tab 2: Accounts ===
       let accountConnections = [];
       const selectedAccountIds = new Set();
+      let lastAccountCheckbox = null;
+      let accountPage = 1;
+      let accountPageSize = 25;
+      let accountSortKey = 'priority';
+      let accountSortDir = 'asc';
+
+      function getAccountView(c) {
+        const data = c.data || {};
+        return {
+          plan: String(data.providerSpecificData?.chatgptPlanType || '').trim(),
+          expires: String(data.expiresAt || ''),
+          status: String(data.testStatus || 'unknown').toLowerCase(),
+          email: String(c.email || c.name || ''),
+          id: String(c.id || '')
+        };
+      }
+
+      function getVisibleAccounts() {
+        const query = $('acc-search').value.trim().toLowerCase();
+        const statusFilter = $('acc-status-filter').value;
+        const planFilter = $('acc-plan-filter').value;
+        const visible = accountConnections.filter(c => {
+          const view = getAccountView(c);
+          const haystack = [view.email, view.id, view.plan, view.status].join(' ').toLowerCase();
+          return (!query || haystack.includes(query))
+            && (statusFilter === 'all' || view.status === statusFilter)
+            && (planFilter === 'all' || view.plan === planFilter);
+        });
+
+        visible.sort((a, b) => {
+          const av = getAccountView(a);
+          const bv = getAccountView(b);
+          let left;
+          let right;
+          if (accountSortKey === 'priority') {
+            left = Number(a.priority) || 0;
+            right = Number(b.priority) || 0;
+          } else if (accountSortKey === 'expires') {
+            left = av.expires ? Date.parse(av.expires) || 0 : 0;
+            right = bv.expires ? Date.parse(bv.expires) || 0 : 0;
+          } else {
+            left = av[accountSortKey] || '';
+            right = bv[accountSortKey] || '';
+          }
+          const result = typeof left === 'number' && typeof right === 'number'
+            ? left - right
+            : String(left).localeCompare(String(right), 'vi', { sensitivity: 'base' });
+          return result * (accountSortDir === 'asc' ? 1 : -1);
+        });
+        return visible;
+      }
+
+      function renderAccountSortState() {
+        document.querySelectorAll('#tab-accounts .sort-btn').forEach(button => {
+          const active = button.dataset.sort === accountSortKey;
+          button.textContent = button.textContent.replace(/ [↑↓]$/, '') + (active ? (accountSortDir === 'asc' ? ' ↑' : ' ↓') : '');
+          button.setAttribute('aria-sort', active ? (accountSortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+        });
+      }
+
+      function renderAccounts() {
+        const visible = getVisibleAccounts();
+        const totalPages = Math.max(1, Math.ceil(visible.length / accountPageSize));
+        accountPage = Math.min(accountPage, totalPages);
+        const start = (accountPage - 1) * accountPageSize;
+        const pageItems = visible.slice(start, start + accountPageSize);
+        $('acc-count').textContent = visible.length === accountConnections.length
+          ? `${accountConnections.length} tài khoản`
+          : `${visible.length} kết quả / ${accountConnections.length} tài khoản`;
+        $('acc-page-info').textContent = `Trang ${accountPage}/${totalPages}${visible.length ? ` · ${start + 1}-${Math.min(start + accountPageSize, visible.length)}` : ''}`;
+        $('acc-prev-page').disabled = accountPage <= 1;
+        $('acc-next-page').disabled = accountPage >= totalPages;
+        $('acc-body').innerHTML = pageItems.length ? pageItems.map((c, i) => {
+          const view = getAccountView(c);
+          const stCls = view.status === 'active' ? 'green' : view.status === 'error' ? 'red' : '';
+          const id = String(c.id);
+          return `<tr><td><input type="checkbox" class="acc-select" data-id="${esc(id)}" aria-label="Chọn ${esc(view.email || 'tài khoản')}" ${selectedAccountIds.has(id) ? 'checked' : ''} ${c.isActive === 0 ? 'disabled' : ''}></td><td>${c.priority || start + i + 1}</td><td><div class="cell-clip" title="${esc(view.email)}">${esc(view.email || '-')}</div></td><td>${view.plan ? `<span class="tag tag-plus">${esc(view.plan)}</span>` : '-'}</td><td>${fmtDate(view.expires)}</td><td><span style="color:var(--${stCls || 'muted'})">${esc(view.status)}</span></td><td><button class="del-btn" onclick="delConn('${esc(c.id)}')">✕</button></td></tr>`;
+        }).join('') : '<tr><td colspan="7" class="empty-cell">Không tìm thấy tài khoản phù hợp.</td></tr>';
+        renderAccountSortState();
+        updateAccountSelectionUI();
+      }
 
       function updateAccountSelectionUI() {
         const selected = accountConnections.filter(c => selectedAccountIds.has(String(c.id)) && c.isActive !== 0);
@@ -991,8 +1165,7 @@
           if (c.isActive !== 0 && checked) selectedAccountIds.add(String(c.id));
           else selectedAccountIds.delete(String(c.id));
         });
-        $('acc-body').querySelectorAll('.acc-select').forEach(input => { input.checked = checked; });
-        updateAccountSelectionUI();
+        renderAccounts();
       }
 
       async function loadAccounts() {
@@ -1004,18 +1177,13 @@
           accountConnections = conns;
           const validIds = new Set(conns.filter(c => c.isActive !== 0).map(c => String(c.id)));
           [...selectedAccountIds].forEach(id => { if (!validIds.has(id)) selectedAccountIds.delete(id); });
-          $('acc-count').textContent = conns.length + ' tài khoản';
-          if (!conns.length) { $('acc-body').innerHTML = '<tr><td colspan="7" class="empty-cell">Chưa có tài khoản nào.</td></tr>'; updateAccountSelectionUI(); return }
-          $('acc-body').innerHTML = conns.map((c, i) => {
-            const data = c.data || {};
-            const plan = data.providerSpecificData?.chatgptPlanType || '';
-            const exp = data.expiresAt || '';
-            const status = data.testStatus || 'unknown';
-            const stCls = status === 'active' ? 'green' : status === 'error' ? 'red' : '';
-            const id = String(c.id);
-            return `<tr><td><input type="checkbox" class="acc-select" data-id="${esc(id)}" aria-label="Chọn ${esc(c.email || c.name || 'tài khoản')}" ${selectedAccountIds.has(id) ? 'checked' : ''} ${c.isActive === 0 ? 'disabled' : ''}></td><td>${c.priority || i + 1}</td><td><div class="cell-clip" title="${esc(c.email)}">${esc(c.email || c.name || '-')}</div></td><td>${plan ? `<span class="tag tag-plus">${esc(plan)}</span>` : '-'}</td><td>${fmtDate(exp)}</td><td><span style="color:var(--${stCls || 'muted'})">${esc(status)}</span></td><td><button class="del-btn" onclick="delConn('${esc(c.id)}')">✕</button></td></tr>`
-          }).join('');
-          updateAccountSelectionUI();
+          const planSelect = $('acc-plan-filter');
+          const currentPlan = planSelect.value;
+          const plans = [...new Set(conns.map(c => getAccountView(c).plan).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+          planSelect.innerHTML = '<option value="all">Tất cả plan</option>' + plans.map(plan => `<option value="${esc(plan)}">${esc(plan)}</option>`).join('');
+          planSelect.value = plans.includes(currentPlan) ? currentPlan : 'all';
+          accountPage = 1;
+          renderAccounts();
         } catch { $('acc-body').innerHTML = '<tr><td colspan="7" class="empty-cell">Lỗi kết nối</td></tr>'; accountConnections = []; updateAccountSelectionUI(); }
       }
 
@@ -1026,13 +1194,67 @@
 
       $('btn-refresh').addEventListener('click', loadAccounts);
 
+      $('acc-search').addEventListener('input', () => { accountPage = 1; renderAccounts(); });
+      $('acc-status-filter').addEventListener('change', () => { accountPage = 1; renderAccounts(); });
+      $('acc-plan-filter').addEventListener('change', () => { accountPage = 1; renderAccounts(); });
+      $('acc-page-size').addEventListener('change', e => {
+        accountPageSize = Number(e.target.value) || 25;
+        accountPage = 1;
+        renderAccounts();
+      });
+      $('acc-prev-page').addEventListener('click', () => {
+        if (accountPage > 1) { accountPage--; renderAccounts(); }
+      });
+      $('acc-next-page').addEventListener('click', () => {
+        const totalPages = Math.max(1, Math.ceil(getVisibleAccounts().length / accountPageSize));
+        if (accountPage < totalPages) { accountPage++; renderAccounts(); }
+      });
+      document.querySelector('#tab-accounts thead').addEventListener('click', e => {
+        const button = e.target.closest('.sort-btn');
+        if (!button) return;
+        if (accountSortKey === button.dataset.sort) accountSortDir = accountSortDir === 'asc' ? 'desc' : 'asc';
+        else { accountSortKey = button.dataset.sort; accountSortDir = 'asc'; }
+        accountPage = 1;
+        renderAccounts();
+      });
+
       $('acc-select-all').addEventListener('change', e => setAllAccountsSelected(e.target.checked));
       $('acc-select-all-header').addEventListener('change', e => setAllAccountsSelected(e.target.checked));
+      $('acc-body').addEventListener('click', e => {
+        const checkbox = e.target.closest('.acc-select');
+        if (!checkbox || checkbox.disabled) return;
+
+        // Handle the toggle here so the range can be applied before the
+        // browser's default click changes only the clicked checkbox.
+        e.preventDefault();
+        const checkboxes = [...$('acc-body').querySelectorAll('.acc-select:not(:disabled)')];
+        const currentIndex = checkboxes.indexOf(checkbox);
+        const previousIndex = lastAccountCheckbox && lastAccountCheckbox.isConnected
+          ? checkboxes.indexOf(lastAccountCheckbox)
+          : -1;
+        const shouldSelect = !checkbox.checked;
+        const start = e.shiftKey && previousIndex !== -1
+          ? Math.min(previousIndex, currentIndex)
+          : currentIndex;
+        const end = e.shiftKey && previousIndex !== -1
+          ? Math.max(previousIndex, currentIndex)
+          : currentIndex;
+
+        for (let i = start; i <= end; i++) {
+          const item = checkboxes[i];
+          item.checked = shouldSelect;
+          if (shouldSelect) selectedAccountIds.add(String(item.dataset.id));
+          else selectedAccountIds.delete(String(item.dataset.id));
+        }
+        lastAccountCheckbox = checkbox;
+        updateAccountSelectionUI();
+      });
       $('acc-body').addEventListener('change', e => {
         if (!e.target.classList.contains('acc-select')) return;
         const id = String(e.target.dataset.id);
         if (e.target.checked) selectedAccountIds.add(id);
         else selectedAccountIds.delete(id);
+        lastAccountCheckbox = e.target;
         updateAccountSelectionUI();
       });
 
@@ -1297,6 +1519,46 @@
       let autoTimer = null;
       let currentAccountStart = null;
       let lastCurrentEmail = null;
+      let autoRunAccounts = [];
+
+      function accountKey(email) {
+        return String(email || '').trim().toLowerCase();
+      }
+
+      function updateAutoExportActions() {
+        const pending = autoRunAccounts.filter(a => a.status === 'pending' || a.status === 'running');
+        const errors = autoRunAccounts.filter(a => a.status === 'error');
+        $('oauth-export-actions').style.display = autoRunAccounts.length && !autoPolling ? 'flex' : 'none';
+        $('btn-export-unrun').textContent = `⬇ Xuất chưa chạy (${pending.length})`;
+        $('btn-export-errors').textContent = `⬇ Xuất lỗi (${errors.length})`;
+        $('btn-export-unrun').disabled = pending.length === 0;
+        $('btn-export-errors').disabled = errors.length === 0;
+      }
+
+      function downloadAutoAccounts(items, filename) {
+        if (!items.length) return;
+        const blob = new Blob([items.map(a => a.raw).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function markAutoRunResult(result) {
+        const item = autoRunAccounts.find(a => accountKey(a.email) === accountKey(result.email));
+        if (item) item.status = result.status === 'error' ? 'error' : 'success';
+      }
+
+      function markInterruptedAccountsPending() {
+        autoRunAccounts.forEach(a => {
+          if (a.status === 'running') a.status = 'pending';
+        });
+        updateAutoExportActions();
+      }
 
       function formatDuration(ms) {
         const total = Math.max(0, Math.floor(ms / 1000));
@@ -1417,6 +1679,8 @@
         $('oauth-progress').style.display = 'block';
         $('oauth-progress-bar').style.width = '0%';
         $('oauth-progress-text').textContent = `0/${accs.length} — Đang khởi động...`;
+        autoRunAccounts = accs.map(a => ({ ...a, status: 'pending' }));
+        updateAutoExportActions();
         startAutoTimer();
         currentAccountStart = Date.now();
         lastCurrentEmail = null;
@@ -1443,6 +1707,7 @@
             $('btn-auto-login').disabled = false;
             $('btn-auto-login').textContent = '🚀 Auto Login tất cả';
             $('btn-auto-stop').style.display = 'none';
+            updateAutoExportActions();
             return;
           }
           // Start polling status
@@ -1453,6 +1718,7 @@
           $('btn-auto-login').disabled = false;
           $('btn-auto-login').textContent = '🚀 Auto Login tất cả';
           $('btn-auto-stop').style.display = 'none';
+          updateAutoExportActions();
         }
       });
 
@@ -1464,6 +1730,7 @@
           const r = await fetch(API + '/api/oauth/auto-stop', { method: 'POST' });
           const d = await r.json();
           if (autoPolling) { clearInterval(autoPolling); autoPolling = null; }
+          markInterruptedAccountsPending();
           $('btn-auto-login').disabled = false;
           $('btn-auto-login').textContent = '🚀 Auto Login tất cả';
           $('btn-auto-stop').style.display = 'none';
@@ -1495,6 +1762,10 @@
             const workerInfo = d.workersRunning ? ` | ${d.workersRunning}/${d.workersRequested || d.workersRunning} luồng` : '';
             $('oauth-progress-text').textContent = `${done}/${total} — ⏱ ${totalElapsed}${mode}${workerInfo}`;
             const active = Array.isArray(d.activeAccounts) ? d.activeAccounts : [];
+            const activeKeys = new Set(active.map(accountKey));
+            autoRunAccounts.forEach(a => {
+              if (a.status === 'pending' && activeKeys.has(accountKey(a.email))) a.status = 'running';
+            });
             const activeEl = $('oauth-active-workers');
             activeEl.style.display = active.length ? 'block' : 'none';
             activeEl.textContent = active.length ? `⚡ Đang chạy (${active.length}): ${active.join(' • ')}` : '';
@@ -1539,6 +1810,7 @@
                   status: r.status,
                   error: r.error || '',
                 };
+                markAutoRunResult(r);
                 const idx = oauthHistory.findIndex(x => x.email === r.email);
                 if (idx >= 0) oauthHistory[idx] = { ...oauthHistory[idx], ...item };
                 else oauthHistory.push(item);
@@ -1555,17 +1827,26 @@
               $('btn-auto-stop').style.display = 'none';
               const elapsed = stopAutoTimer(d.stopped ? 'Đã dừng sau' : 'Hoàn thành sau');
               if (d.stopped) {
+                markInterruptedAccountsPending();
                 $('oauth-progress-text').textContent = `⏹ Đã dừng — ${elapsed}`;
                 showMsg('oauth-msg', `⏹ Đã dừng auto login — thời gian: ${elapsed}`, 'err');
               } else {
                 $('oauth-progress-text').textContent = `✅ Hoàn thành! ${d.done || 0} thành công, ${d.failed || 0} lỗi — ${elapsed}`;
                 showMsg('oauth-msg', `✅ Hoàn thành! ${d.done || 0} thành công, ${d.failed || 0} lỗi — thời gian: ${elapsed}`, 'ok');
               }
+              updateAutoExportActions();
               loadAccounts();
             }
           } catch {}
         }, 500);
       }
+
+      $('btn-export-unrun').addEventListener('click', () => {
+        downloadAutoAccounts(autoRunAccounts.filter(a => a.status === 'pending' || a.status === 'running'), 'codex-oauth-chua-chay.txt');
+      });
+      $('btn-export-errors').addEventListener('click', () => {
+        downloadAutoAccounts(autoRunAccounts.filter(a => a.status === 'error'), 'codex-oauth-loi.txt');
+      });
 
       // Manual login
       $('btn-oauth-login').addEventListener('click', async () => {
