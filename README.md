@@ -1,4 +1,4 @@
-# Infinity AI Store · Import 9router
+# Import 9router · 1 nút nhấn
 
 > Công cụ local giúp đăng nhập OAuth Codex và nhập connection vào 9router.
 
