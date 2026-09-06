@@ -1222,24 +1222,16 @@
       $('acc-select-all-header').addEventListener('change', e => setAllAccountsSelected(e.target.checked));
       $('acc-body').addEventListener('click', e => {
         const checkbox = e.target.closest('.acc-select');
-        if (!checkbox || checkbox.disabled) return;
-
-        // Handle the toggle here so the range can be applied before the
-        // browser's default click changes only the clicked checkbox.
-        e.preventDefault();
+        if (!checkbox || checkbox.disabled || !e.shiftKey || !lastAccountCheckbox || !lastAccountCheckbox.isConnected) return;
         const checkboxes = [...$('acc-body').querySelectorAll('.acc-select:not(:disabled)')];
         const currentIndex = checkboxes.indexOf(checkbox);
-        const previousIndex = lastAccountCheckbox && lastAccountCheckbox.isConnected
-          ? checkboxes.indexOf(lastAccountCheckbox)
-          : -1;
-        const shouldSelect = !checkbox.checked;
-        const start = e.shiftKey && previousIndex !== -1
-          ? Math.min(previousIndex, currentIndex)
-          : currentIndex;
-        const end = e.shiftKey && previousIndex !== -1
-          ? Math.max(previousIndex, currentIndex)
-          : currentIndex;
-
+        const previousIndex = checkboxes.indexOf(lastAccountCheckbox);
+        if (currentIndex === -1 || previousIndex === -1) return;
+        // Handle range selection here because change events do not reliably
+        // preserve the Shift modifier across browser input methods.
+        const shouldSelect = !selectedAccountIds.has(String(checkbox.dataset.id));
+        const start = Math.min(previousIndex, currentIndex);
+        const end = Math.max(previousIndex, currentIndex);
         for (let i = start; i <= end; i++) {
           const item = checkboxes[i];
           item.checked = shouldSelect;
@@ -1251,10 +1243,11 @@
       });
       $('acc-body').addEventListener('change', e => {
         if (!e.target.classList.contains('acc-select')) return;
-        const id = String(e.target.dataset.id);
-        if (e.target.checked) selectedAccountIds.add(id);
-        else selectedAccountIds.delete(id);
-        lastAccountCheckbox = e.target;
+        const checkbox = e.target;
+        const shouldSelect = checkbox.checked;
+        if (shouldSelect) selectedAccountIds.add(String(checkbox.dataset.id));
+        else selectedAccountIds.delete(String(checkbox.dataset.id));
+        lastAccountCheckbox = checkbox;
         updateAccountSelectionUI();
       });
 
